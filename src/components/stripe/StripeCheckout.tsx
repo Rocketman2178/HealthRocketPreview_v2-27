@@ -12,14 +12,13 @@ interface StripeCheckoutModalProps {
 
 export default function StripeCheckoutModal({
   priceId,
-  promoCode,
   trialDays = 0,
   onClose,
 }: StripeCheckoutModalProps) {
   const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { createSubscription, loading: stripeLoading } = useStripe();
+  const { loading: stripeLoading } = useStripe();
   
   useEffect(() => {
     // Check if this is a success redirect from Stripe
@@ -41,32 +40,7 @@ export default function StripeCheckoutModal({
       return;
     }
     
-    const processCheckout = async () => {
-      try {
-        setLoading(true);
-        
-        // Use the useStripe hook to create a subscription
-        const result = await createSubscription(priceId, trialDays, promoCode);
-        
-        if ('error' in result) {
-          throw new Error(result.error);
-        }
-
-        // Redirect to Stripe checkout
-        if (result.sessionUrl) {
-          window.location.href = result.sessionUrl;
-        } else {
-          throw new Error('No session URL returned');
-        }
-      } catch (err) {
-        console.error('Error creating checkout session:', err);
-        setError(err instanceof Error ? err.message : 'Failed to create checkout session');
-        setLoading(false);
-      }
-    };
-    
-    processCheckout();
-  }, [priceId, trialDays, promoCode, createSubscription]);
+  }, [priceId, trialDays]);
 
   if (success) {
     return <SubscriptionSuccess onClose={onClose} trialDays={trialDays} />;
