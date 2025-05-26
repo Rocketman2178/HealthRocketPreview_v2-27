@@ -2,9 +2,6 @@ import { useState, useEffect } from "react";
 import {
   X,
   Shield,
-  Users,
-  Building2,
-  Rocket,
   Gift,
   CreditCard,
 } from "lucide-react";
@@ -14,21 +11,9 @@ import { BillingPortal } from "../subscription/BillingPortal";
 import { useStripe } from "../../hooks/useStripe";
 import type { User } from "../../types/user";
 import { DowngradeConfirmation } from "../subscription/DowngradeConfirmation";
-
-interface Plan {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  interval: string;
-  features: string[];
-  price_id: string;
-  is_active: boolean;
-  icon: React.ComponentType<any>;
-  comingSoon: boolean;
-  trialDays?: number;
-  promoCode?: boolean;
-}
+import { supabase } from "../../lib/supabase/client";
+import Plan from "../../types/plan";
+import plans from "../../constants/plans";
 
 interface SubscriptionManagerProps {
   onClose: () => void;
@@ -40,116 +25,40 @@ export function SubscriptionManager({
   userData,
 }: SubscriptionManagerProps) {
   const [activeTab, setActiveTab] = useState<"plans" | "billing">("plans");
-  const [isSubscriptionOpen, setIsSubscriptionOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [daysLeft, setDaysLeft] = useState<number | null>(null);
   const [paymentModal, setPaymentModal] = useState<boolean>(false);
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
-  const { createSubscription, loading: stripeLoading } = useStripe();
-  const [isPaidSubscription, setIsPaidSubscription] = useState<boolean>(false); 
-  const [showDowngradeConfirmation, setShowDowngradeConfirmation] = useState<boolean>(false);
-  const [planToDowngradeTo, setPlanToDowngradeTo] = useState<Plan | null>(null);
-
-  const plans: Plan[] = [
-    {
-      id: "free_plan",
-      name: "Free Plan",
-      description: "Basic access to Health Rocket",
-      price: 0,
-      interval: "month",
-      features: [
-        "Access to all basic features",
-        "Daily boosts and challenges",
-        "Health tracking",
-        "Community access",
-        "Prize Pool Rewards not included",
-      ],
-      price_id: "price_free",
-      is_active: true,
-      icon: Rocket,
-      comingSoon: false,
-    },
-    {
-      id: "pro_plan",
-      name: "Pro Plan",
-      description: "Full access to all features",
-      price: 59.95,
-      interval: "month",
-      features: [
-        "All Free Plan features",
-        "Premium challenges and quests",
-        "Prize pool eligibility",
-        "Advanced health analytics",
-        "60-day free trial",
-      ],
-      price_id: "price_1Qt7jVHPnFqUVCZdutw3mSWN",
-      is_active: true,
-      icon: Shield,
-      comingSoon: false,
-    },
-    {
-      id: "family_plan",
-      name: "Pro + Family",
-      description: "Share with up to 5 family members",
-      price: 89.95,
-      interval: "month",
-      features: [
-        "All Pro Plan features",
-        "Up to 5 family members",
-        "Family challenges and competitions",
-        "Family leaderboard",
-        "Shared progress tracking",
-      ],
-      price_id: "price_1Qt7lXHPnFqUVCZdlpS1vrfs",
-      is_active: true,
-      icon: Users,
-      comingSoon: true,
-    },
-    {
-      id: "team_plan",
-      name: "Pro + Team",
-      description: "For teams and organizations",
-      price: 149.95,
-      interval: "month",
-      features: [
-        "All Pro Plan features",
-        "Up to 20 team members",
-        "Team challenges and competitions",
-        "Team analytics dashboard",
-        "Admin controls and reporting",
-      ],
-      price_id: "price_1Qt7mVHPnFqUVCZdqvWROuTD",
-      is_active: true,
-      icon: Building2,
-      comingSoon: true,
-    },
-  ];
-
-  // Get current plan name
-  const currentPlanName = userData?.plan || "Free Plan";
-
+  const {
+    createSubscription,
+    updatePaymentMethod,
+    loading: stripeLoading,
+  } = useStripe();
+  const [isPaidSubscription, setIsPaidSubscription] = useState<boolean>(false);
+  const [showDowngradeConfirmation, setShowDowngradeConfirmation] =
+    useState<boolean>(false);
   // Calculate days left in trial
   useEffect(() => {
     if (!userData?.subscription_start_date) return;
-    
+
     // Check if this is a success redirect from Stripe
     const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.get('session_id')) {
+    if (urlParams.get("session_id")) {
       setShowSuccess(true);
       setIsPaidSubscription(true);
-      
+
       // Clean up URL parameters
       const url = new URL(window.location.href);
-      url.searchParams.delete('session_id');
+      url.searchParams.delete("session_id");
       window.history.replaceState({}, document.title, url.toString());
       return;
     }
 
     // Check if user has an active subscription (not just a trial)
-    const isActive = userData?.plan_status === 'Active';
+    const isActive = userData?.plan_status === "Active";
     setIsPaidSubscription(isActive);
-    
+
     // Only show days left for trial users who haven't paid yet
     if (isActive) {
       setDaysLeft(null);
@@ -174,73 +83,47 @@ export function SubscriptionManager({
     if (!plan) return;
 
     // If user is on Pro Plan and selecting Free Plan, show downgrade confirmation instead of Stripe redirect
-    if (userData?.plan === 'Pro Plan' && plan.name === 'Free Plan') {
-      setPlanToDowngradeTo(plan);
+    if (userData?.plan === "Pro Plan" && plan.name === "Free Plan") {
       setShowDowngradeConfirmation(true);
       return;
     }
 
     try {
       setLoading(true);
-      // Create subscription session with Stripe
-      const result = await createSubscription(
-        plan.price_id,
-        plan.trialDays || 0,
-        plan.promoCode || false
-      );
-
-      if ("error" in result) {
-        console.error("Error creating subscription:", result.error);
-        // Fall back to payment modal
-        setSelectedPlan(plan);
-        setPaymentModal(true);
-      } else {
-        // Redirect to Stripe checkout
-        window.location.href = result.sessionUrl;
-      }
-    } catch (err) {
-      console.error("Error handling plan selection:", err);
-      // Fall back to payment modal
       setSelectedPlan(plan);
       setPaymentModal(true);
+      const result = await createSubscription(
+        plan.id,
+        plan.price_id,
+        plan.trial_days,
+        plan.promo_code,
+      );
+
+      if (!result) {
+        throw new Error("Unable to Create Subscription");
+      }
+
+      window.location.href = result?.sessionUrl;
+    } catch (err) {
     } finally {
       setLoading(false);
+      setSelectedPlan(null);
+      setPaymentModal(false);
     }
   };
 
-  const handleDowngradeConfirmed = () => {
-    async function processDowngrade() {
-      try {
-        setLoading(true);
-        
-        // Call the RPC function directly
-        const { data, error } = await supabase.rpc('cancel_subscription');
+  const handleDowngradeConfirmed = async () => {
+      setShowDowngradeConfirmation(false);
+      onClose();
+      window.location.reload();
+  };
 
-        if (error) {
-          throw new Error(error.message);
-        }
-
-        if (!data?.success) {
-          throw new Error(data?.error || 'Failed to downgrade subscription');
-        }
-        
-        // Close the downgrade confirmation
-        setShowDowngradeConfirmation(false);
-        
-        // Show success message or update UI
-        onClose();
-        
-        // Refresh the page to update UI
-        window.location.reload();
-      } catch (err) {
-        console.error('Error downgrading subscription:', err);
-        // Show error message
-      } finally {
-        setLoading(false);
-      }
-    }
-    
-    processDowngrade();
+  const handleUpdatePaymentMethod = async () => {
+    const result = await updatePaymentMethod();
+    console.log(
+      ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>Result:",
+      result
+    );
   };
 
   return (
@@ -302,47 +185,51 @@ export function SubscriptionManager({
                 Available Plans
               </h3>
               <p className="text-gray-300 mb-6">
-                {daysLeft && userData?.plan === "Pro Plan" && userData?.plan_status === "Trial"
+                {daysLeft &&
+                userData?.plan === "Pro Plan" &&
+                userData?.plan_status === "Trial"
                   ? `You have ${daysLeft} days left in your trial. Upgrade now to continue your Pro benefits.`
                   : "Choose the plan that best fits your health optimization journey"}
               </p>
 
               {/* Trial Banner */}
-              {daysLeft && userData?.plan === "Pro Plan" && userData?.plan_status === "Trial" && (
-                <div className="bg-orange-500/10 border border-orange-500/20 p-4 rounded-lg mb-6">
-                  <div className="flex items-start gap-3">
-                    <Shield className="text-orange-500 mt-1" size={20} />
-                    <div>
-                      <h4 className="text-white font-medium mb-1">
-                        Pro Plan Trial
-                      </h4>
-                      <p className="text-sm text-gray-300 mb-2">
-                        Your trial ends in{" "}
-                        <span className="text-orange-500 font-medium">
-                          {daysLeft} days
-                        </span>
-                        .
-                      </p>
+              {daysLeft &&
+                userData?.plan === "Pro Plan" &&
+                userData?.plan_status === "Trial" && (
+                  <div className="bg-orange-500/10 border border-orange-500/20 p-4 rounded-lg mb-6">
+                    <div className="flex items-start gap-3">
+                      <Shield className="text-orange-500 mt-1" size={20} />
+                      <div>
+                        <h4 className="text-white font-medium mb-1">
+                          Pro Plan Trial
+                        </h4>
+                        <p className="text-sm text-gray-300 mb-2">
+                          Your trial ends in{" "}
+                          <span className="text-orange-500 font-medium">
+                            {daysLeft} days
+                          </span>
+                          .
+                        </p>
 
-                      <button
-                        key={plans[1].id}
-                        onClick={() => handlePlanClick(plans[1])}
-                        disabled={stripeLoading}
-                        className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                      >
-                        {stripeLoading ? (
-                          <div className="flex items-center gap-2">
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                            <span>Processing...</span>
-                          </div>
-                        ) : (
-                          "Upgrade Now"
-                        )}
-                      </button>
+                        <button
+                          key={plans[1].id}
+                          onClick={() => handlePlanClick(plans[1])}
+                          disabled={stripeLoading}
+                          className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                        >
+                          {stripeLoading ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              <span>Processing...</span>
+                            </div>
+                          ) : (
+                            "Upgrade Now"
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {plans.map((plan) => {
@@ -481,7 +368,10 @@ export function SubscriptionManager({
                       </div>
                     </div>
                   </div>
-                  <button className="px-3 py-1.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm">
+                  <button
+                    className="px-3 py-1.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm"
+                    onClick={() => handleUpdatePaymentMethod()}
+                  >
                     Update
                   </button>
                 </div>
@@ -539,13 +429,13 @@ export function SubscriptionManager({
           ></div>
           <StripeCheckout
             priceId={selectedPlan.price_id}
-            trialDays={selectedPlan.trialDays || 0}
-            promoCode={!!selectedPlan.promoCode || false}
+            trialDays={selectedPlan.trial_days}
+            promoCode={!!selectedPlan.promo_code}
             onClose={() => setPaymentModal(false)}
           />
         </div>
       )}
-      
+
       {/* Downgrade Confirmation Modal */}
       {showDowngradeConfirmation && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center">
@@ -562,12 +452,12 @@ export function SubscriptionManager({
           </div>
         </div>
       )}
-      
+
       {/* Success Modal */}
       {showSuccess && (
         <SubscriptionSuccess
           onClose={() => setShowSuccess(false)}
-          trialDays={selectedPlan?.trialDays || 0}
+          trialDays={selectedPlan?.trial_days}
         />
       )}
     </div>

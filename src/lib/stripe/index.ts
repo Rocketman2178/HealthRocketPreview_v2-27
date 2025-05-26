@@ -60,7 +60,7 @@ export async function cancelSubscription(): Promise<{ success: boolean; error?: 
 export async function updatePaymentMethod(): Promise<StripeResult> {
   try {
     // Call the RPC function instead of the edge function
-    const { data, error } = await supabase.rpc('get_stripe_portal_url');
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-payment-method`)
 
     if (error) throw error;
     

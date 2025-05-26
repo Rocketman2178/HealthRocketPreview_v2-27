@@ -1,99 +1,94 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import Stripe from "https://esm.sh/stripe@14.14.0";
-
-const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!, {
-  apiVersion: '2023-10-16',
+// INITIALIZE STRIPE
+const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
+  apiVersion: "2023-10-16",
 });
-
+// DEFINE CORS HEADERS
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
-
+// SERVE CREATE SUBSCRIPTION API
 serve(async (req) => {
-  // Handle CORS
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+  // HANDLE CORS
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    // CREATE SUPABASE CLIENT
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Get the authorization header from the request
-    const authHeader = req.headers.get('Authorization')?.split(' ')[1];
+    // GET AUTHORIZATION HEADER
+    const authHeader = req.headers.get("Authorization")?.split(" ")[1];
+    // CHECK AUTH HEADER EXISTS
     if (!authHeader) {
-      throw new Error('Authorization header is required');
+      throw new Error("Authorization header is required");
     }
 
-    // Get the user from Supabase auth
-    const { data: { user }, error: userError } = await supabase.auth.getUser(authHeader);
-    
+    // GET AUTHENTICATED USER
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(authHeader);
+    // CHECK IF THERE IS AN ERROR WHILE FETCHING AUTHENTICATED USER
     if (userError) {
-      console.error('Auth error:', userError.message);
-      throw new Error('Authentication failed');
+      throw new Error("Authentication failed");
     }
-    
+    // CHECK IF THE USER EXISTS
     if (!user) {
-      throw new Error('User not found');
+      throw new Error("User not found");
     }
 
-    // Get the price ID from the request
+    // GET BODY PARAMS
     const { priceId, trialDays, promoCode } = await req.json();
-    if (!priceId) throw new Error('Price ID is required');
+    if (!priceId) throw new Error("Price ID is required");
 
-    // Get user profile to ensure required data exists
+    // GET USER PROFILE
     const { data: userData, error: profileError } = await supabase
-      .from('users')
-      .select('email, name')
-      .eq('id', user.id)
+      .from("users")
+      .select("email, name")
+      .eq("id", user.id)
       .single();
 
+    // CHECK IF THE USER PROFILE EXISTS
     if (profileError || !userData) {
-      console.error('Profile error:', profileError?.message);
-      throw new Error('User profile not found');
+      throw new Error("User profile not found");
     }
-
+    // CHECK IF THE USER HAS EMAIL ADDRESS
     if (!userData.email) {
-      throw new Error('User email is required');
+      throw new Error("User email is required");
     }
 
-    // Get or create Stripe customer
-    const { data: customers, error: customerError } = await supabase
-      .from('subscriptions')
-      .select('stripe_customer_id')
-      .eq('user_id', user.id)
+    // CHECK IF USER HAS ALREADY SUBSCRIPTION
+    const { data: customers } = await supabase
+      .from("subscriptions")
+      .select("stripe_customer_id")
+      .eq("user_id", user.id)
       .maybeSingle();
-
-    if (customerError) {
-      console.error('Customer lookup error:', customerError.message);
-      throw new Error('Failed to lookup customer');
-    }
-
     let customerId = customers?.stripe_customer_id;
 
+    // CHECK IF USER CUSTOMER ID EXISTS
     if (!customerId) {
-      try {
-        // Create Stripe customer
-        const customer = await stripe.customers.create({
-          email: userData.email,
-          name: userData.name || undefined,
-          metadata: {
-            supabaseUUID: user.id,
-          },
-        });
+      // IF THERE IS NO CUSTOMER ID FOR SUBSCRIPTION CREATE NEW CUSTOMER
+      const customer = await stripe.customers.create({
+        email: userData.email,
+        name: userData.name || undefined,
+        metadata: {
+          supabaseUUID: user.id,
+        },
+      });
 
-        customerId = customer.id;
-      } catch (stripeError) {
-        console.error('Stripe customer creation error:', stripeError.message);
-        throw new Error('Failed to create customer');
-      }
+      customerId = customer.id;
     }
-    
-    // Create Stripe checkout session
+
+    //CREATE STRIPE CHECKOUT SESSION
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       line_items: [
@@ -102,46 +97,31 @@ serve(async (req) => {
           quantity: 1,
         },
       ],
-      payment_method_collection: 'if_required',
-      ...(promoCode && {allow_promotion_codes: true}),
-      mode: 'subscription',
-      ...(trialDays > 0 && { subscription_data: { trial_period_days: trialDays } }),
-      success_url: `${req.headers.get('origin')}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.get('origin')}`,
+      payment_method_collection: "if_required",
+      ...(promoCode && { allow_promotion_codes: true }),
+      mode: "subscription",
+      ...(trialDays > 0 && {
+        subscription_data: { trial_period_days: trialDays },
+      }),
+      success_url: `${req.headers.get(
+        "origin"
+      )}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${req.headers.get("origin")}`,
       metadata: {
-        userId: user.id
-      }
+        userId: user.id,
+      },
     });
-
-    // Update user's plan
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ 
-        plan: priceId === 'price_1Qt7haHPnFqUVCZdl33y9bET' ? 'Free Plan' : 'Pro Plan',
-        subscription_start_date: new Date().toISOString()
-      })
-      .eq('id', user.id);
-
-    if (updateError) {
-      console.error('User update error:', updateError.message);
-      throw new Error('Failed to update user plan');
-    }
-
     return new Response(
       JSON.stringify({ sessionId: session.id, sessionUrl: session.url }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
       }
     );
   } catch (error) {
-    console.error('Function error:', error.message);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      }
-    );
+    return new Response(JSON.stringify({ error: error.message }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 400,
+    });
   }
 });
