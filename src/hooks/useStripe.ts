@@ -17,6 +17,7 @@ export function useStripe() {
   const [error, setError] = useState<string | null>(null);
 
   const createSubscription = async (
+    productId:string, 
     priceId: string,
     trialDays: number = 0,
     promoCode: boolean = false
@@ -41,7 +42,7 @@ export function useStripe() {
             Authorization: `Bearer ${session.access_token}`,
             apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ priceId, trialDays, promoCode }),
+          body: JSON.stringify({productId, priceId, trialDays, promoCode }),
         }
       );
 

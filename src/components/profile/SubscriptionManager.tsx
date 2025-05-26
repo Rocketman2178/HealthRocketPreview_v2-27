@@ -2,9 +2,6 @@ import { useState, useEffect } from "react";
 import {
   X,
   Shield,
-  Users,
-  Building2,
-  Rocket,
   Gift,
   CreditCard,
 } from "lucide-react";
@@ -96,9 +93,10 @@ export function SubscriptionManager({
       setSelectedPlan(plan);
       setPaymentModal(true);
       const result = await createSubscription(
+        plan.id,
         plan.price_id,
-        plan.trialDays || 0,
-        plan.promoCode || false
+        plan.trial_days,
+        plan.promo_code,
       );
 
       if (!result) {
@@ -115,34 +113,9 @@ export function SubscriptionManager({
   };
 
   const handleDowngradeConfirmed = async () => {
-    try {
-      setLoading(true);
-
-      // Call the RPC function directly
-      const { data, error } = await supabase.rpc("cancel_subscription");
-
-      if (error) {
-        throw new Error(error.message);
-      }
-
-      if (!data?.success) {
-        throw new Error(data?.error || "Failed to downgrade subscription");
-      }
-
-      // Close the downgrade confirmation
       setShowDowngradeConfirmation(false);
-
-      // Show success message or update UI
       onClose();
-
-      // Refresh the page to update UI
       window.location.reload();
-    } catch (err) {
-      console.error("Error downgrading subscription:", err);
-      // Show error message
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleUpdatePaymentMethod = async () => {
@@ -456,8 +429,8 @@ export function SubscriptionManager({
           ></div>
           <StripeCheckout
             priceId={selectedPlan.price_id}
-            trialDays={selectedPlan.trialDays || 0}
-            promoCode={!!selectedPlan.promoCode || false}
+            trialDays={selectedPlan.trial_days}
+            promoCode={!!selectedPlan.promo_code}
             onClose={() => setPaymentModal(false)}
           />
         </div>
@@ -484,7 +457,7 @@ export function SubscriptionManager({
       {showSuccess && (
         <SubscriptionSuccess
           onClose={() => setShowSuccess(false)}
-          trialDays={selectedPlan?.trialDays || 0}
+          trialDays={selectedPlan?.trial_days}
         />
       )}
     </div>

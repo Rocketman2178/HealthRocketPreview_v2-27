@@ -1,71 +1,72 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import Stripe from "https://esm.sh/stripe@14.14.0";
-
+// INITIALIZE STRIPE
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2023-10-16",
 });
-
+// DEFINE CORS HEADERS
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
+// SERVE CREATE SUBSCRIPTION API
 serve(async (req) => {
-  // Handle CORS
+  // HANDLE CORS
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    // CREATE SUPABASE CLIENT
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Get the authorization header from the request
+    // GET AUTHORIZATION HEADER
     const authHeader = req.headers.get("Authorization")?.split(" ")[1];
+    // CHECK AUTH HEADER EXISTS
     if (!authHeader) {
       throw new Error("Authorization header is required");
     }
 
-    // Get the user from Supabase auth
+    // GET AUTHENTICATED USER
     const {
       data: { user },
       error: userError,
     } = await supabase.auth.getUser(authHeader);
-
+    // CHECK IF THERE IS AN ERROR WHILE FETCHING AUTHENTICATED USER
     if (userError) {
-      console.error("Auth error:", userError.message);
       throw new Error("Authentication failed");
     }
-
+    // CHECK IF THE USER EXISTS
     if (!user) {
       throw new Error("User not found");
     }
 
-    // Get the price ID from the request
+    // GET BODY PARAMS
     const { priceId, trialDays, promoCode } = await req.json();
     if (!priceId) throw new Error("Price ID is required");
 
-    // Get user profile to ensure required data exists
+    // GET USER PROFILE
     const { data: userData, error: profileError } = await supabase
       .from("users")
       .select("email, name")
       .eq("id", user.id)
       .single();
 
+    // CHECK IF THE USER PROFILE EXISTS
     if (profileError || !userData) {
-      console.error("Profile error:", profileError?.message);
       throw new Error("User profile not found");
     }
-
+    // CHECK IF THE USER HAS EMAIL ADDRESS
     if (!userData.email) {
       throw new Error("User email is required");
     }
 
-    // Get or create Stripe customer
+    // CHECK IF USER HAS ALREADY SUBSCRIPTION
     const { data: customers } = await supabase
       .from("subscriptions")
       .select("stripe_customer_id")
@@ -73,32 +74,21 @@ serve(async (req) => {
       .maybeSingle();
     let customerId = customers?.stripe_customer_id;
 
+    // CHECK IF USER CUSTOMER ID EXISTS
     if (!customerId) {
-      try {
-        // Create Stripe customer
-        const customer = await stripe.customers.create({
-          email: userData.email,
-          name: userData.name || undefined,
-          metadata: {
-            supabaseUUID: user.id,
-          },
-        });
+      // IF THERE IS NO CUSTOMER ID FOR SUBSCRIPTION CREATE NEW CUSTOMER
+      const customer = await stripe.customers.create({
+        email: userData.email,
+        name: userData.name || undefined,
+        metadata: {
+          supabaseUUID: user.id,
+        },
+      });
 
-        customerId = customer.id;
-
-        const { error: customerError } = await supabase
-          .from("subscriptions")
-          .insert({ stripe_customer_id: customerId, user_id: user.id });
-
-        if (customerError) {
-          throw new Error("Failed to add customer");
-        }
-      } catch (stripeError) {
-        throw new Error("Failed to create customer");
-      }
+      customerId = customer.id;
     }
 
-    // Create Stripe checkout session
+    //CREATE STRIPE CHECKOUT SESSION
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       line_items: [
@@ -121,24 +111,6 @@ serve(async (req) => {
         userId: user.id,
       },
     });
-
-    // Update user's plan
-    const { error: updateError } = await supabase
-      .from("users")
-      .update({
-        plan:
-          priceId === "price_1Qt7haHPnFqUVCZdl33y9bET"
-            ? "Free Plan"
-            : "Pro Plan",
-        subscription_start_date: new Date().toISOString(),
-      })
-      .eq("id", user.id);
-
-    if (updateError) {
-      console.error("User update error:", updateError.message);
-      throw new Error("Failed to update user plan");
-    }
-
     return new Response(
       JSON.stringify({ sessionId: session.id, sessionUrl: session.url }),
       {
@@ -147,7 +119,6 @@ serve(async (req) => {
       }
     );
   } catch (error) {
-    console.error("Function error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 400,

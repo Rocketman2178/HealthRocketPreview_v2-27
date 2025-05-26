@@ -9,7 +9,7 @@ export default interface Plan {
   is_active: boolean;
   icon: React.ComponentType<any>;
   comingSoon: boolean;
-  trialDays?: number;
-  promoCode?: boolean;
+  trial_days?: number;
+  promo_code?: boolean;
 }
 

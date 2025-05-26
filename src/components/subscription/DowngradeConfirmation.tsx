@@ -1,18 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, X, Calendar, Check } from 'lucide-react';
-import { useSupabase } from '../../contexts/SupabaseContext';
-import { supabase } from '../../lib/supabase';
+import { useState, useEffect } from "react";
+import { AlertTriangle, X, Calendar, Check } from "lucide-react";
+import { useSupabase } from "../../contexts/SupabaseContext";
+import { supabase } from "../../lib/supabase";
 
 interface DowngradeConfirmationProps {
   onClose: () => void;
-  onConfirm: () => void;
+   onConfirm: () => void;
   subscriptionEndDate?: string;
 }
 
-export function DowngradeConfirmation({ 
-  onClose, 
+export function DowngradeConfirmation({
+  onClose,
   onConfirm,
-  subscriptionEndDate 
+  subscriptionEndDate,
 }: DowngradeConfirmationProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,29 +32,29 @@ export function DowngradeConfirmation({
       try {
         // Get subscription details from database
         const { data, error } = await supabase
-          .from('subscriptions')
-          .select('current_period_end')
-          .eq('user_id', user.id)
+          .from("subscriptions")
+          .select("current_period_end")
+          .eq("user_id", user.id)
           .maybeSingle();
 
         if (error) throw error;
-        
+
         if (data?.current_period_end) {
           setEndDate(data.current_period_end);
         } else {
           // Fallback to user table
           const { data: userData, error: userError } = await supabase
-            .from('users')
-            .select('subscription_end_date')
-            .eq('id', user.id)
+            .from("users")
+            .select("subscription_end_date")
+            .eq("id", user.id)
             .single();
-            
+
           if (userError) throw userError;
           setEndDate(userData?.subscription_end_date || null);
         }
       } catch (err) {
-        console.error('Error fetching subscription details:', err);
-        setError('Failed to fetch subscription details');
+        console.error("Error fetching subscription details:", err);
+        setError("Failed to fetch subscription details");
       }
     };
 
@@ -65,46 +65,54 @@ export function DowngradeConfirmation({
     try {
       setLoading(true);
       setError(null);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("User not authenticated");
+      }
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cancel-subscription`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+        }
+      );
 
-      // Call the RPC function to cancel subscription
-      const { data, error: cancelError } = await supabase.rpc('cancel_subscription');
+      const data = await response.json();
 
-      if (cancelError) {
-        throw new Error(cancelError.message);
+      if (!response.ok || data.error) {
+        throw new Error(data.error || "Failed to create Stripe session");
       }
 
-      if (!data?.success) {
-        throw new Error(data?.error || 'Failed to cancel subscription');
-      }
-
-      // Update user's plan to Free Plan (will take effect at end of period)
       const { error: updateError } = await supabase
-        .from('users')
-        .update({ 
-          plan: 'Free Plan',
-          updated_at: new Date().toISOString()
+        .from("users")
+        .update({
+          plan: "Free Plan",
+          updated_at: new Date().toISOString(),
         })
-        .eq('id', user?.id);
+        .eq("id", user?.id);
 
       if (updateError) throw updateError;
-
       onConfirm();
     } catch (err) {
-      console.error('Error downgrading subscription:', err);
-      setError(err instanceof Error ? err.message : 'Failed to downgrade subscription');
     } finally {
       setLoading(false);
     }
   };
 
   // Format date for display
-  const formattedDate = endDate 
-    ? new Date(endDate).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
+  const formattedDate = endDate
+    ? new Date(endDate).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
       })
-    : 'your next billing date';
+    : "your next billing date";
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
@@ -115,7 +123,9 @@ export function DowngradeConfirmation({
               <div className="w-10 h-10 bg-orange-500/20 rounded-full flex items-center justify-center">
                 <AlertTriangle className="text-orange-500" size={20} />
               </div>
-              <h2 className="text-xl font-bold text-white">Confirm Downgrade</h2>
+              <h2 className="text-xl font-bold text-white">
+                Confirm Downgrade
+              </h2>
             </div>
             <button
               onClick={onClose}
@@ -130,10 +140,16 @@ export function DowngradeConfirmation({
               <div className="flex items-start gap-3">
                 <Calendar className="text-orange-500 mt-1" size={20} />
                 <div>
-                  <p className="text-white font-medium mb-2">Your Pro Plan Benefits Will End Soon</p>
+                  <p className="text-white font-medium mb-2">
+                    Your Pro Plan Benefits Will End Soon
+                  </p>
                   <p className="text-gray-300 text-sm">
-                    Your subscription will remain active until <span className="text-orange-500 font-medium">{formattedDate}</span>. 
-                    After this date, your account will be downgraded to the Free Plan.
+                    Your subscription will remain active until{" "}
+                    <span className="text-orange-500 font-medium">
+                      {formattedDate}
+                    </span>
+                    . After this date, your account will be downgraded to the
+                    Free Plan.
                   </p>
                 </div>
               </div>
