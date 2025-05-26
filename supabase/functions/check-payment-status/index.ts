@@ -64,7 +64,11 @@ serve(async (req) => {
         .select("*")
         .eq("user_id", userId)
         .eq("stripe_customer_id", customerId);
-    if (!user_subsctription || user_subscription_error || user_subsctription.length === 0) {
+    if (
+      !user_subsctription ||
+      user_subscription_error ||
+      user_subsctription.length === 0
+    ) {
       // Insert subscription data
       const { error: insertError } = await supabase
         .from("subscriptions")
@@ -82,11 +86,22 @@ serve(async (req) => {
       if (updatetError) throw updatetError;
     }
 
+    const plan_price_ids = [
+      {
+        name: "Free Plan",
+        id: "price_1Qt7haHPnFqUVCZdl33y9bET",
+      },
+      {
+        name: "Pro Plan",
+        id: "price_1Qt7jVHPnFqUVCZdutw3mSWN",
+      },
+    ];
+    const currentPlan = plan_price_ids.find((plan)=>plan.id ===subscription.items.data[0].price.id);
     // Update user's plan
     const { error: userUpdateError } = await supabase
       .from("users")
       .update({
-        plan: "Pro Plan",
+        plan: currentPlan?.name,
         plan_status: "Active",
         subscription_start_date: newSubscriptionRecord.current_period_start,
         subscription_end_date: newSubscriptionRecord.current_period_end,

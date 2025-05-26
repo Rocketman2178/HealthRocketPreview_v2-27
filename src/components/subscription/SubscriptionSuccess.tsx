@@ -1,7 +1,6 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Check, X, Rocket, Trophy, Gift } from 'lucide-react';
 import { useSupabase } from '../../contexts/SupabaseContext';
-import { supabase } from '../../lib/supabase';
 
 interface SubscriptionSuccessProps {
   onClose: () => void;
@@ -47,19 +46,7 @@ export function SubscriptionSuccess({ onClose, trialDays = 0 }: SubscriptionSucc
             console.error('Failed to verify payment status');
           }
         }
-        
-        // Update user's plan to Pro Plan and set status to Active
-        await supabase
-          .from('users')
-          .update({ 
-            plan: 'Pro Plan', 
-            plan_status: 'Active',
-            subscription_start_date: new Date().toISOString(),
-            subscription_end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // Set end date 30 days in future
-            days_since_fp: 0 // Reset days since FP
-          })
-          .eq('id', user.id);
-          
+                
         // Clean up URL parameters
         if (sessionId) {
           const url = new URL(window.location.href);
@@ -84,7 +71,7 @@ export function SubscriptionSuccess({ onClose, trialDays = 0 }: SubscriptionSucc
               <div className="w-16 h-16 bg-lime-500/20 rounded-full flex items-center justify-center mx-auto">
                 <Check className="text-lime-500" size={32} />
               </div>
-              <h2 className="text-xl font-bold text-white mt-4">Welcome to Pro Plan!</h2>
+              <h2 className="text-xl font-bold text-white mt-4">Welcome </h2>
               {trialDays > 0 && (
                 <p className="text-orange-500 mt-2">
                   Your {trialDays}-day free trial has started
